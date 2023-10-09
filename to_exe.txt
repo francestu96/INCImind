@@ -1,1 +1,1 @@
-pyinstaller --onefile INCImind.py
+pyinstaller --onefile --icon=logo.ico INCImind.py
