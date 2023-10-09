@@ -162,7 +162,7 @@ if __name__ == "__main__":
     print(*[x.capitalize() for x in record[1]], sep=", ")
     print()
 
-  merged_list = [item for sublist in [inci[1] for inci in res] for item in sublist]
+  merged_list = [item.lower().capitalize() for sublist in [ing[1] for ing in inci] for item in sublist if item != "ignorato"]
   duplicates = [item for item, count in Counter(merged_list).items() if count > 1]
 
   colors = ['\033[31m', '\033[32m', '\033[33m', '\033[34m', '\033[35m', '\033[36m']  
