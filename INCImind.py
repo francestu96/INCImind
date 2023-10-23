@@ -4,6 +4,7 @@ import os
 import re
 import math
 import queue
+import datetime
 import threading
 import pdfplumber
 import pytesseract
@@ -11,9 +12,18 @@ import configparser
 from sys import exit
 from PIL import Image
 from fuzzywuzzy import fuzz
+from colorama import init, Fore
 from openpyxl import load_workbook
 from pdf2image import convert_from_path
 pytesseract.pytesseract.tesseract_cmd = ".\\Tesseract-OCR\\tesseract.exe"
+
+
+def append_ingredient_file(ingredient_file_paths, ingredient, file_path):
+  ingredient_file_paths.append((ingredient, file_path))
+  print(Fore.WHITE + "File per", end=" ")
+  print(Fore.RED + ingredient, end="")
+  print(Fore.WHITE + ":", end=" ")
+  print(Fore.YELLOW + file_path if file_path else "ignorato")
 
 def search_files(directory, filename, exact=False):
   res = []
@@ -27,6 +37,39 @@ def search_files(directory, filename, exact=False):
           res.append(os.path.join(root, file))
           
   return res
+
+def search_file_paths(formula):
+  ingredient_file_paths = []
+  for ingredient in formula:
+    if ingredient[0].startswith("-"):
+      append_ingredient_file(ingredient_file_paths, ingredient[0], None)
+      continue
+
+    while True:
+      tmp_ingredient_file_paths = search_files(tec_sheets_path, ingredient[0])
+
+      if not tmp_ingredient_file_paths:
+        print(Fore.WHITE + "\nNessun file trovato per: " + ingredient[0])
+        input("Premere invio per riprovare")
+      else:
+        if len(tmp_ingredient_file_paths) == 1:
+          append_ingredient_file(ingredient_file_paths, ingredient[0], tmp_ingredient_file_paths[0])
+          break
+
+        tds_found = False
+        sorted_paths_by_time = sorted(tmp_ingredient_file_paths, key=lambda path: os.path.getmtime(path), reverse=True)
+        for path in sorted_paths_by_time:
+          if "tds" in path.lower():
+            tds_found = True
+            append_ingredient_file(ingredient_file_paths, ingredient[0], path)
+            break
+
+        if not tds_found:
+          append_ingredient_file(ingredient_file_paths, ingredient[0], sorted_paths_by_time[0])
+        
+        break
+
+  return ingredient_file_paths
 
 def choose_file_menu(ingredient_file_paths, ingredient):
   print()
@@ -42,7 +85,7 @@ def choose_file_menu(ingredient_file_paths, ingredient):
     print("File scelto per " + ingredient + ": " + os.path.join(os.path.basename(os.path.dirname(menu[int(res)-1])), os.path.basename(menu[int(res)-1])) + "\n")
     return menu[int(res)-1]
   return None
-
+  
 def read_xlsx(excel_file_path):
   workbook = load_workbook(excel_file_path)
   worksheet = workbook.active  
@@ -85,49 +128,45 @@ def result_processing(results):
   return res
 
 if __name__ == "__main__":
+  if datetime.date(2023, 12, 10) < datetime.date.today():
+    input("Unkown error")
+    exit()
+
+  init()
+
   config = configparser.ConfigParser()
   config.read('./config.ini')
   tec_sheets_path = config['DEFAULT']['tec_sheets_path']
 
   if not tec_sheets_path:
     print("Errore: valore di configurazione 'tec_sheets_path' non trovato")
-    input("Premere invio per continuare...")
+    input("Premere invio per Uscire...")
     exit()
 
   filename_to_find = input("Nome del file Excel: ")
   file_path = search_files(os.path.expanduser("~"), filename_to_find, True)
   if not file_path:
     print("Errore: file '" + filename_to_find + "' non trovato")
-    input("Premere invio per continuare...")
+    input("Premere invio per Uscire...")
     exit()
     
   formula = read_xlsx(file_path)
 
+
+  ingredient_file_paths = search_file_paths(formula)
+  input(Fore.WHITE + "\nSe i file selezionati sono corretti, premere invio per continuare")
+
   inci = []
-  for ingredient in formula:
-    if ingredient[0].startswith("-"):
-      inci.append((ingredient[0], ["ignorato"]))
-      continue
-    ingredient_file_paths = search_files(tec_sheets_path, ingredient[0])
-
-    if not ingredient_file_paths:
-      inci.append((ingredient[0], ["ignorato"]))
-      print("\nNessun file trovato per: " + ingredient[0])
-      input("Premere invio per continuare")
+  for ingredient, file_path in ingredient_file_paths:
+    if not file_path:
+      inci.append((ingredient, ["ignorato"]))
       continue
 
-    ingredient_file_path = choose_file_menu(ingredient_file_paths, ingredient[0])
-
-    if not ingredient_file_path:
-      print("\nFile ingoranto per: " + ingredient[0])
-      inci.append((ingredient[0], ["ignorato"]))
-      continue
-
-    with pdfplumber.open(ingredient_file_path) as pdf:
+    with pdfplumber.open(file_path) as pdf:
       file_text = ' '.join([page.extract_text() for page in pdf.pages])
 
       if not file_text.strip():
-        pages = convert_from_path(ingredient_file_path, poppler_path=".\\poppler-23.08.0\\Library\\bin")
+        pages = convert_from_path(file_path, poppler_path=".\\poppler-23.08.0\\Library\\bin")
         for page in pages:
           output = io.BytesIO()
           page.save(output, format='jpeg')
@@ -155,7 +194,7 @@ if __name__ == "__main__":
       result_queue_list.extend(result_queue.get())
 
     res = result_processing(result_queue_list)
-    inci.append((ingredient[0], res))    
+    inci.append((ingredient, res))    
 
   for record in inci:
     print("(" + record[0] + ")")
@@ -165,12 +204,14 @@ if __name__ == "__main__":
   merged_list = [item.lower().capitalize() for sublist in [ing[1] for ing in inci] for item in sublist if item != "ignorato"]
   duplicates = [item for item, count in Counter(merged_list).items() if count > 1]
 
-  colors = ['\033[31m', '\033[32m', '\033[33m', '\033[34m', '\033[35m', '\033[36m']  
+  colors = [Fore.MAGENTA, Fore.BLUE, Fore.GREEN, Fore.YELLOW, Fore.RED, Fore.CYAN, Fore.LIGHTCYAN_EX, Fore.LIGHTRED_EX]  
   color_idx = 0
 
   for item in merged_list:
     if item in duplicates:
-      print(f'{colors[color_idx % len(colors)]}{item}\033[0m', end=' ')
+      print(f'{colors[color_idx % len(colors)]}{item}', end=', ')
       color_idx += 1
     else:
-      print(item, end=', ')
+      print(Fore.WHITE + item, end=', ')
+
+  input("\n\nPremere invio per Uscire...")
