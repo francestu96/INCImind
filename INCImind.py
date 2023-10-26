@@ -13,6 +13,7 @@ from sys import exit
 from PIL import Image
 from fuzzywuzzy import fuzz
 from colorama import init, Fore
+from collections import Counter
 from openpyxl import load_workbook
 from pdf2image import convert_from_path
 pytesseract.pytesseract.tesseract_cmd = ".\\Tesseract-OCR\\tesseract.exe"
@@ -128,90 +129,103 @@ def result_processing(results):
   return res
 
 if __name__ == "__main__":
-  if datetime.date(2023, 12, 10) < datetime.date.today():
-    input("Unkown error")
-    exit()
+  try:
+    if datetime.date(2023, 12, 10) < datetime.date.today():
+      input("Unkown error")
+      exit()
 
-  init()
+    init()
 
-  config = configparser.ConfigParser()
-  config.read('./config.ini')
-  tec_sheets_path = config['DEFAULT']['tec_sheets_path']
+    config = configparser.ConfigParser()
+    config.read('./config.ini')
+    tec_sheets_path = config['DEFAULT']['tec_sheets_path']
 
-  if not tec_sheets_path:
-    print("Errore: valore di configurazione 'tec_sheets_path' non trovato")
-    input("Premere invio per Uscire...")
-    exit()
+    if not tec_sheets_path:
+      print("Errore: valore di configurazione 'tec_sheets_path' non trovato")
+      input("Premere invio per Uscire...")
+      exit()
 
-  filename_to_find = input("Nome del file Excel: ")
-  file_path = search_files(os.path.expanduser("~"), filename_to_find, True)
-  if not file_path:
-    print("Errore: file '" + filename_to_find + "' non trovato")
-    input("Premere invio per Uscire...")
-    exit()
-    
-  formula = read_xlsx(file_path)
-
-
-  ingredient_file_paths = search_file_paths(formula)
-  input(Fore.WHITE + "\nSe i file selezionati sono corretti, premere invio per continuare")
-
-  inci = []
-  for ingredient, file_path in ingredient_file_paths:
+    filename_to_find = input("Nome del file Excel: ")
+    file_path = search_files(os.path.expanduser("~"), filename_to_find, True)
     if not file_path:
-      inci.append((ingredient, ["ignorato"]))
-      continue
+      print("Errore: file '" + filename_to_find + "' non trovato")
+      input("Premere invio per Uscire...")
+      exit()
+      
+    formula = read_xlsx(file_path)
 
-    with pdfplumber.open(file_path) as pdf:
-      file_text = ' '.join([page.extract_text() for page in pdf.pages])
 
-      if not file_text.strip():
-        pages = convert_from_path(file_path, poppler_path=".\\poppler-23.08.0\\Library\\bin")
-        for page in pages:
-          output = io.BytesIO()
-          page.save(output, format='jpeg')
-          output.seek(0)
-          img = Image.open(output)
-          file_text += pytesseract.image_to_string(img, lang='eng')
+    ingredient_file_paths = search_file_paths(formula)
+    input(Fore.WHITE + "\nSe i file selezionati sono corretti, premere invio per continuare")
 
-    with open("./ingredients.txt", "r") as f:
-      ingredients = f.read().splitlines()
+    inci = []
+    for ingredient, file_path in ingredient_file_paths:
+      if not file_path:
+        inci.append((ingredient, ["ignorato"]))
+        continue
 
-    lines_per_thread = 5000
-    threads_num = math.ceil(len(ingredients) / lines_per_thread)
-    threads = []
-    result_queue = queue.Queue()
-    for i in range(threads_num):
-      thread = threading.Thread(target=check_in_file, args=(ingredients[i * lines_per_thread: (i+1) * lines_per_thread], file_text, result_queue))
-      threads.append(thread)
-      thread.start()
+      with pdfplumber.open(file_path) as pdf:
+        file_text = ' '.join([page.extract_text() for page in pdf.pages])
 
-    for thread in threads:
-      thread.join()
+        if not file_text.strip():
+          pages = convert_from_path(file_path, poppler_path=".\\poppler-23.08.0\\Library\\bin")
+          for page in pages:
+            output = io.BytesIO()
+            page.save(output, format='jpeg')
+            output.seek(0)
+            img = Image.open(output)
+            file_text += pytesseract.image_to_string(img, lang='eng')
 
-    result_queue_list = []
-    while not result_queue.empty():
-      result_queue_list.extend(result_queue.get())
+      with open("./ingredients.txt", "r") as f:
+        ingredients = f.read().splitlines()
 
-    res = result_processing(result_queue_list)
-    inci.append((ingredient, res))    
+      lines_per_thread = 5000
+      threads_num = math.ceil(len(ingredients) / lines_per_thread)
+      threads = []
+      result_queue = queue.Queue()
+      for i in range(threads_num):
+        thread = threading.Thread(target=check_in_file, args=(ingredients[i * lines_per_thread: (i+1) * lines_per_thread], file_text, result_queue))
+        threads.append(thread)
+        thread.start()
 
-  for record in inci:
-    print("(" + record[0] + ")")
-    print(*[x.capitalize() for x in record[1]], sep=", ")
-    print()
+      for thread in threads:
+        thread.join()
 
-  merged_list = [item.lower().capitalize() for sublist in [ing[1] for ing in inci] for item in sublist if item != "ignorato"]
-  duplicates = [item for item, count in Counter(merged_list).items() if count > 1]
+      result_queue_list = []
+      while not result_queue.empty():
+        result_queue_list.extend(result_queue.get())
 
-  colors = [Fore.MAGENTA, Fore.BLUE, Fore.GREEN, Fore.YELLOW, Fore.RED, Fore.CYAN, Fore.LIGHTCYAN_EX, Fore.LIGHTRED_EX]  
-  color_idx = 0
+      res = result_processing(result_queue_list)
+      inci.append((ingredient, res))    
 
-  for item in merged_list:
-    if item in duplicates:
-      print(f'{colors[color_idx % len(colors)]}{item}', end=', ')
-      color_idx += 1
-    else:
-      print(Fore.WHITE + item, end=', ')
+    for record in inci:
+      print("(" + record[0] + ")")
+      print(*[x.capitalize() for x in record[1]], sep=", ")
+      print()
 
-  input("\n\nPremere invio per Uscire...")
+    merged_list = [item.lower().capitalize() for sublist in [ing[1] for ing in inci] for item in sublist if item != "ignorato"]
+    duplicates = [item for item, count in Counter(merged_list).items() if count > 1]
+    colors = [Fore.MAGENTA, Fore.BLUE, Fore.GREEN, Fore.YELLOW, Fore.RED, Fore.CYAN, Fore.LIGHTCYAN_EX, Fore.LIGHTRED_EX]  
+    asigned_colors = [(duplicates[i % len(duplicates)], colors[i % len(colors)]) for i in range(len(duplicates))]
+
+    output = ""
+    for item in merged_list:
+      found = False
+      for duplicate, color in asigned_colors:
+        if item == duplicate:
+          found = True
+          output += color + item + ', '
+          break
+
+      if not found:
+        output += Fore.WHITE + item + ', '
+
+    if output:
+      output = output[:-2]
+
+    print(Fore.GREEN + "INCI:")
+    print(output)
+    input("\n\nPremere invio per Uscire...")
+  except Exception as error:
+    print("An error occurred: ", error)
+    input("\nPremere invio per Uscire...")
