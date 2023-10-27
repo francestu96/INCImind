@@ -46,30 +46,28 @@ def search_file_paths(formula):
       append_ingredient_file(ingredient_file_paths, ingredient[0], None)
       continue
 
-    while True:
-      tmp_ingredient_file_paths = search_files(tec_sheets_path, ingredient[0])
+    tmp_ingredient_file_paths = search_files(tec_sheets_path, ingredient[0])
 
-      if not tmp_ingredient_file_paths:
-        print(Fore.WHITE + "\nNessun file trovato per: " + ingredient[0])
-        input("Premere invio per riprovare")
-      else:
-        if len(tmp_ingredient_file_paths) == 1:
-          append_ingredient_file(ingredient_file_paths, ingredient[0], tmp_ingredient_file_paths[0])
-          break
+    if not tmp_ingredient_file_paths:
+      print(Fore.WHITE + "\nNessun file trovato per: " + ingredient[0])
+      input("Premere invio per riprovare")
+      return None
 
-        tds_found = False
-        sorted_paths_by_time = sorted(tmp_ingredient_file_paths, key=lambda path: os.path.getmtime(path), reverse=True)
-        for path in sorted_paths_by_time:
-          if "tds" in path.lower():
-            tds_found = True
-            append_ingredient_file(ingredient_file_paths, ingredient[0], path)
-            break
+    if len(tmp_ingredient_file_paths) == 1:
+      append_ingredient_file(ingredient_file_paths, ingredient[0], tmp_ingredient_file_paths[0])
+      break
 
-        if not tds_found:
-          append_ingredient_file(ingredient_file_paths, ingredient[0], sorted_paths_by_time[0])
-        
+    tds_found = False
+    sorted_paths_by_time = sorted(tmp_ingredient_file_paths, key=lambda path: os.path.getmtime(path), reverse=True)
+    for path in sorted_paths_by_time:
+      if "tds" in path.lower():
+        tds_found = True
+        append_ingredient_file(ingredient_file_paths, ingredient[0], path)
         break
 
+    if not tds_found:
+      append_ingredient_file(ingredient_file_paths, ingredient[0], sorted_paths_by_time[0])
+      
   return ingredient_file_paths
 
 def choose_file_menu(ingredient_file_paths, ingredient):
@@ -90,6 +88,7 @@ def choose_file_menu(ingredient_file_paths, ingredient):
 def read_xlsx(excel_file_path):
   workbook = load_workbook(excel_file_path)
   worksheet = workbook.active  
+  print(worksheet.title)
 
   result = []
   for row in worksheet.iter_rows(values_only=True, min_row=5):
@@ -100,6 +99,7 @@ def read_xlsx(excel_file_path):
           tmp = row[i]
         else:
           result.append((tmp, row[i]))
+  workbook.close()
   return result
 
 def check_in_file(ingredients, file_text, result_queue):
@@ -151,11 +151,13 @@ if __name__ == "__main__":
       print("Errore: file '" + filename_to_find + "' non trovato")
       input("Premere invio per Uscire...")
       exit()
-      
-    formula = read_xlsx(file_path)
+    
+    while True:
+      formula = read_xlsx(file_path)
+      ingredient_file_paths = search_file_paths(formula)
+      if ingredient_file_paths:
+        break
 
-
-    ingredient_file_paths = search_file_paths(formula)
     input(Fore.WHITE + "\nSe i file selezionati sono corretti, premere invio per continuare")
 
     inci = []
